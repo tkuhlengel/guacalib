@@ -302,10 +302,23 @@ class GuacamoleDB:
         # Try environment variables first
         env_enabled = os.environ.get("GUACALIB_SSH_TUNNEL_ENABLED", "").lower()
         if env_enabled in ("true", "1", "yes"):
+            # Validate and parse port
+            port_str = os.environ.get("GUACALIB_SSH_TUNNEL_PORT", "22")
+            try:
+                port = int(port_str)
+                if port < 1 or port > 65535:
+                    print(
+                        f"Error: Invalid SSH tunnel port: {port}. Must be between 1 and 65535."
+                    )
+                    sys.exit(1)
+            except ValueError:
+                print(f"Error: Invalid SSH tunnel port: {port_str}. Must be a number.")
+                sys.exit(1)
+
             ssh_config = {
                 "enabled": True,
                 "host": os.environ.get("GUACALIB_SSH_TUNNEL_HOST"),
-                "port": int(os.environ.get("GUACALIB_SSH_TUNNEL_PORT", "22")),
+                "port": port,
                 "user": os.environ.get("GUACALIB_SSH_TUNNEL_USER"),
                 "password": os.environ.get("GUACALIB_SSH_TUNNEL_PASSWORD"),
                 "private_key": os.environ.get("GUACALIB_SSH_TUNNEL_PRIVATE_KEY"),
@@ -342,10 +355,25 @@ class GuacamoleDB:
             if enabled not in ("true", "1", "yes"):
                 return None
 
+            # Validate and parse port
+            port_str = config["mysql"].get("ssh_tunnel_port", "22")
+            try:
+                port = int(port_str)
+                if port < 1 or port > 65535:
+                    print(
+                        f"Error: Invalid SSH tunnel port in config: {port}. Must be between 1 and 65535."
+                    )
+                    sys.exit(1)
+            except ValueError:
+                print(
+                    f"Error: Invalid SSH tunnel port in config: {port_str}. Must be a number."
+                )
+                sys.exit(1)
+
             ssh_config = {
                 "enabled": True,
                 "host": config["mysql"].get("ssh_tunnel_host"),
-                "port": int(config["mysql"].get("ssh_tunnel_port", "22")),
+                "port": port,
                 "user": config["mysql"].get("ssh_tunnel_user"),
                 "password": config["mysql"].get("ssh_tunnel_password"),
                 "private_key": config["mysql"].get("ssh_tunnel_private_key"),
@@ -400,16 +428,25 @@ class GuacamoleDB:
                 self.debug_print("Setting up SSH tunnel...")
 
                 # Prepare SSH tunnel parameters
+                # Validate and parse MySQL port
+                mysql_port_str = self.db_config.get("port", "3306")
+                try:
+                    mysql_port = int(mysql_port_str)
+                    if mysql_port < 1 or mysql_port > 65535:
+                        raise ValueError(
+                            f"MySQL port {mysql_port} out of valid range (1-65535)"
+                        )
+                except (ValueError, TypeError) as e:
+                    print(f"Error: Invalid MySQL port: {mysql_port_str}. {e}")
+                    sys.exit(1)
+
                 ssh_kwargs = {
                     "ssh_address_or_host": (
                         self.ssh_tunnel_config["host"],
                         self.ssh_tunnel_config["port"],
                     ),
                     "ssh_username": self.ssh_tunnel_config["user"],
-                    "remote_bind_address": (
-                        self.db_config["host"],
-                        int(self.db_config.get("port", 3306)),
-                    ),
+                    "remote_bind_address": (self.db_config["host"], mysql_port),
                 }
 
                 # Add authentication method
@@ -449,8 +486,10 @@ class GuacamoleDB:
             if self.ssh_tunnel:
                 try:
                     self.ssh_tunnel.stop()
-                except:
-                    pass
+                except Exception as tunnel_error:
+                    self.debug_print(
+                        f"Error stopping SSH tunnel during cleanup: {tunnel_error}"
+                    )
             print(f"Error connecting to database: {e}")
             sys.exit(1)
 
