@@ -412,6 +412,8 @@ class GuacamoleDB:
         Raises:
             SystemExit: If database connection or SSH tunnel setup fails.
             mysql.connector.Error: For various MySQL connection errors.
+            paramiko.SSHException: For SSH tunnel authentication or connection errors.
+            Exception: For other SSH tunnel or configuration errors.
 
         Note:
             Uses UTF8MB4 charset to support full Unicode including emoji and
@@ -420,7 +422,9 @@ class GuacamoleDB:
 
             If SSH tunnel is enabled, the connection will be made through the tunnel
             using a local port forwarding. The tunnel is automatically started and
-            the database host/port are adjusted accordingly.
+            the database host/port are adjusted accordingly. Any errors during SSH
+            tunnel setup or MySQL connection will result in proper cleanup and
+            a SystemExit with an error message.
         """
         try:
             # Set up SSH tunnel if configured
@@ -482,7 +486,8 @@ class GuacamoleDB:
                 return mysql.connector.connect(
                     **self.db_config, charset="utf8mb4", collation="utf8mb4_general_ci"
                 )
-        except Exception as e:
+        except mysql.connector.Error as e:
+            # MySQL connection error
             if self.ssh_tunnel:
                 try:
                     self.ssh_tunnel.stop()
@@ -490,7 +495,18 @@ class GuacamoleDB:
                     self.debug_print(
                         f"Error stopping SSH tunnel during cleanup: {tunnel_error}"
                     )
-            print(f"Error connecting to database: {e}")
+            print(f"Error connecting to MySQL database: {e}")
+            sys.exit(1)
+        except Exception as e:
+            # SSH tunnel or other configuration error
+            if self.ssh_tunnel:
+                try:
+                    self.ssh_tunnel.stop()
+                except Exception as tunnel_error:
+                    self.debug_print(
+                        f"Error stopping SSH tunnel during cleanup: {tunnel_error}"
+                    )
+            print(f"Error establishing connection (SSH tunnel or configuration): {e}")
             sys.exit(1)
 
     def list_users(self) -> List[str]:
